@@ -1,0 +1,27 @@
+# Compiler files
+cache/
+out/
+forge-cache/
+
+# Ignores development broadcast logs
+/broadcast
+
+# Docs
+docs/
+
+.history/
+.DS_Store
+
+.vscode/
+
+# Coverage report
+report/
+lcov.info
+coverage.txt
+
+# CRE Specific
+*.env
+
+node_modules/
+
+tmp.*
