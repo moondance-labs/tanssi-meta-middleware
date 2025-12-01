@@ -278,6 +278,14 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
         status = $r.distributionStatusPerEraIndexPerMiddleware[eraIndex][middleware];
     }
 
+    function getPointsStoredPerEraIndexPerMiddleware(
+        uint48 eraIndex,
+        address middleware
+    ) external view returns (uint256 pointsStored) {
+        TanssiMetaMiddlewareRewardsStorage storage $r = _getTanssiMetaMiddlewareRewardsStorage();
+        pointsStored = $r.pointsStoredPerEraIndexPerMiddleware[eraIndex][middleware];
+    }
+
     function storeRewards(uint48 eraIndex, OperatorRewardWithProof[] memory operatorRewardsAndProofs) external {
         TanssiMetaMiddlewareRewardsStorage storage $r = _getTanssiMetaMiddlewareRewardsStorage();
         EraRoot memory eraRoot = _loadAndVerifyEraRoot($r, eraIndex);
@@ -334,7 +342,9 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
         bool distributionComplete =
             _distributeRewardsToMiddleware(eraIndex, middleware, eraRoot, currentStatus, rewardsDistributionData);
 
-        require(distributionComplete, TanssiMetaMiddleware__CouldNotDistributeRewardsInASingleCall());
+        if (!distributionComplete) {
+            revert TanssiMetaMiddleware__CouldNotDistributeRewardsInASingleCall();
+        }
     }
 
     function distributeRewardsToMiddlewareTrustingly(

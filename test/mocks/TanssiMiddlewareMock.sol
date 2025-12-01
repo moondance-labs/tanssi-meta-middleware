@@ -39,6 +39,14 @@ contract TanssiMiddlewareMock { /*is ITanssiCommonMiddleware*/
         address rewardsToken
     ) public view returns (bytes memory rewardsDistributionData) {}
 
+    function prepareRewardsDistributionDataFromOperatorRewards(
+        uint48 eraIndex,
+        address rewardsToken,
+        ITanssiMetaMiddleware.OperatorReward[] memory operatorRewards
+    ) public view returns (bytes memory rewardsDistributionData) {
+        return abi.encode(operatorRewards);
+    }
+
     function distributeRewards(uint48 eraIndex, address, bytes memory) external returns (bool distributionComplete) {
         distributionCallsPerEraIndex[eraIndex]++;
 

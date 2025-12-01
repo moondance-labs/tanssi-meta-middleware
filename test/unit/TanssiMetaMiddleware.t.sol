@@ -16,6 +16,9 @@ pragma solidity ^0.8.25;
 
 import {Test, console2} from "forge-std/Test.sol";
 
+// ---------------------- CHAINLINK ----------------------
+import {MockV3Aggregator} from "lib/chainlink-brownie-contracts/contracts/src/v0.8/tests/MockV3Aggregator.sol";
+
 // ---------------------- OPENZEPPELIN ----------------------
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
@@ -95,6 +98,8 @@ contract TanssiMetaMiddlewareTest is Utils {
         tanssiMetaMiddleware.registerMiddleware(middleware);
     }
 
+    // ---------------------- Collateral Registration ----------------------
+
     function testCanRegisterCollateral() public {
         vm.startPrank(admin);
         address collateral = makeAddr("collateral");
@@ -131,7 +136,42 @@ contract TanssiMetaMiddlewareTest is Utils {
         vm.stopPrank();
     }
 
+    function testCanGetTokensData() public {
+        ERC20Mock collateralA = new ERC20Mock("WETH", 18);
+        ERC20Mock collateralB = new ERC20Mock("USDC", 6);
+        MockV3Aggregator oracleA = new MockV3Aggregator(6, 3_000_000_000); // 3k usd with 6 decimals
+        MockV3Aggregator oracleB = new MockV3Aggregator(4, 10_000); // 1 usdc with 4 decimals
+
+        vm.startPrank(admin);
+        tanssiMetaMiddleware.registerCollateral(address(collateralA), address(oracleA));
+        tanssiMetaMiddleware.registerCollateral(address(collateralB), address(oracleB));
+        vm.stopPrank();
+
+        address[] memory collaterals = new address[](2);
+        collaterals[0] = address(collateralA);
+        collaterals[1] = address(collateralB);
+        ITanssiMetaMiddleware.TokenData[] memory tokensData = tanssiMetaMiddleware.getTokensData(collaterals);
+        assertEq(tokensData[0].price, 3_000_000_000);
+        assertEq(tokensData[0].priceDecimals, 6);
+        assertEq(tokensData[0].tokenDecimals, 18);
+        assertEq(tokensData[1].price, 10_000);
+        assertEq(tokensData[1].priceDecimals, 4);
+        assertEq(tokensData[1].tokenDecimals, 6);
+    }
+
     // ---------------------- Operator Registration ----------------------
+
+    function testCanRegisterOperator() public {
+        bytes32 operatorKey = keccak256(abi.encodePacked("operatorKey"));
+        address middleware = makeAddr("middleware");
+        vm.prank(admin);
+        tanssiMetaMiddleware.registerMiddleware(middleware);
+
+        vm.prank(middleware);
+        tanssiMetaMiddleware.registerOperator(operator1, operatorKey);
+
+        assertEq(tanssiMetaMiddleware.keyToOperator(operatorKey), operator1);
+    }
 
     function testCannotRegisterSameKeyTwiceForDifferentOperators() public {
         bytes32 operatorKey = keccak256(abi.encodePacked("operatorKey"));
@@ -378,35 +418,242 @@ contract TanssiMetaMiddlewareTest is Utils {
         console2.log("Gas used on MetaMiddleware.distributeRewards:", gasBefore - gasAfter);
     }
 
-    function testStoreTransferRewards() public {
+    // ---------------------- Rewards Distribution to Middleware ----------------------
+
+    function testCannotPrepareDistributionDataIfMiddlewareDoesNotMatch() public {
+        uint48 eraIndex = 1;
+        (ITanssiMetaMiddleware.OperatorRewardWithProof[] memory operatorRewardsAndProofs,,,) =
+            _prepare50OperatorsWithRewardsAndProofs(eraIndex);
+
+        address notMiddleware = makeAddr("notMiddleware");
+        vm.expectRevert(
+            abi.encodeWithSelector(ITanssiMetaMiddleware.TanssiMetaMiddleware__UnexpectedMiddleware.selector)
+        );
+        tanssiMetaMiddleware.prepareRewardsDistributionData(eraIndex, notMiddleware, operatorRewardsAndProofs);
+    }
+
+    function testCanPrepareRewardsDistributionDataFromOperatorRewards() public {
+        uint48 eraIndex = 1;
+        (
+            ITanssiMetaMiddleware.OperatorRewardWithProof[] memory operatorRewardsAndProofs,
+            address middleware,
+            uint256 totalTokens,
+            uint256 totalPoints
+        ) = _prepare50OperatorsWithRewardsAndProofs(eraIndex);
+        tanssiMetaMiddleware.storeRewards(eraIndex, operatorRewardsAndProofs);
+
+        // This should prepare an OperatorReward array and call the middleware with it. The mock will simply encode it and return it so we can easily verify it.
+        (bytes memory rewardsDistributionData, uint256 totalAmount) =
+            tanssiMetaMiddleware.prepareRewardsDistributionData(eraIndex, middleware, operatorRewardsAndProofs);
+
+        ITanssiMetaMiddleware.OperatorReward[] memory operatorRewards =
+            abi.decode(rewardsDistributionData, (ITanssiMetaMiddleware.OperatorReward[]));
+        assertEq(operatorRewards.length, 50);
+
+        uint256 totalDistributedAmount;
+        for (uint256 i; i < 50; i++) {
+            assertEq(
+                operatorRewards[i].operator, tanssiMetaMiddleware.keyToOperator(operatorRewardsAndProofs[i].operatorKey)
+            );
+            uint256 rewardAmount = totalTokens.mulDiv(operatorRewardsAndProofs[i].totalPoints, totalPoints);
+            totalDistributedAmount += rewardAmount;
+            assertEq(operatorRewards[i].rewardAmount, rewardAmount);
+        }
+
+        assertEq(totalAmount, totalDistributedAmount);
+    }
+
+    function testStoreAndTransferRewards() public {
         vm.skip(skipCostTests);
 
         uint48 eraIndex = 1;
-        (ITanssiMetaMiddleware.OperatorRewardWithProof[] memory operatorRewardsAndProofs,) =
-            _prepare50OperatorsWithRewardsAndProofs(eraIndex);
-
-        // We will fulfill all in a single call to test for gas costs. In practice, a batch can be of at most 30 operators at a time.
-        // TODO: Call as automation performer
+        (
+            ITanssiMetaMiddleware.OperatorRewardWithProof[] memory operatorRewardsAndProofs,
+            address middleware,
+            uint256 totalTokens,
+            uint256 totalPoints
+        ) = _prepare50OperatorsWithRewardsAndProofs(eraIndex);
 
         uint256 gasBefore = gasleft();
         tanssiMetaMiddleware.storeRewards(eraIndex, operatorRewardsAndProofs);
         console2.log("Gas used on MetaMiddleware.storeRewards (50 operators):", gasBefore - gasleft());
 
         assertEq(tanssiMetaMiddleware.getEraTransferred(eraIndex), true);
+
+        address[] memory operators = new address[](50);
+        for (uint256 i; i < 50;) {
+            operators[i] = tanssiMetaMiddleware.keyToOperator(operatorRewardsAndProofs[i].operatorKey);
+            unchecked {
+                ++i;
+            }
+        }
+        uint256[] memory operatorRewards = tanssiMetaMiddleware.getOperatorsRewards(eraIndex, middleware, operators);
+        for (uint256 i; i < 50;) {
+            uint256 reward = totalTokens.mulDiv(operatorRewardsAndProofs[i].totalPoints, totalPoints);
+            assertEq(operatorRewards[i], reward);
+            unchecked {
+                ++i;
+            }
+        }
     }
 
-    function testCannotDistributeManuallyIfAlreadyTransferred() public {
-        vm.skip(true); // TODO: We need to mark it somehow that distribition started, because both manual and automated will call store rewards first.
-        vm.skip(skipCostTests);
+    function testRewardsWithZeroPointsAreIgnored() public {
         uint48 eraIndex = 1;
-
-        (ITanssiMetaMiddleware.OperatorRewardWithProof[] memory operatorRewardsAndProofs, address middleware) =
-            _prepare50OperatorsWithRewardsAndProofs(eraIndex);
+        (
+            ITanssiMetaMiddleware.OperatorRewardWithProof[] memory operatorRewardsAndProofs,
+            address middleware,
+            ,
+            uint256 totalPoints
+        ) = _prepare50OperatorsWithRewardsAndProofs(eraIndex);
+        uint256 removedPoints = operatorRewardsAndProofs[0].totalPoints;
+        operatorRewardsAndProofs[0].totalPoints = 0;
+        operatorRewardsAndProofs[0].proof = new bytes32[](0);
         tanssiMetaMiddleware.storeRewards(eraIndex, operatorRewardsAndProofs);
+
+        assertEq(
+            tanssiMetaMiddleware.getPointsStoredPerEraIndexPerMiddleware(eraIndex, middleware),
+            totalPoints - removedPoints
+        );
+    }
+
+    function testCannotStoreRewardsWithInvalidProof() public {
+        uint48 eraIndex = 1;
+        (
+            ITanssiMetaMiddleware.OperatorRewardWithProof[] memory operatorRewardsAndProofs,
+            address middleware,
+            ,
+            uint256 totalPoints
+        ) = _prepare50OperatorsWithRewardsAndProofs(eraIndex);
+        operatorRewardsAndProofs[0].proof = new bytes32[](0);
+
+        vm.expectRevert(abi.encodeWithSelector(ITanssiMetaMiddleware.TanssiMetaMiddleware__InvalidProof.selector));
+        tanssiMetaMiddleware.storeRewards(eraIndex, operatorRewardsAndProofs);
+    }
+
+    function testCanDistributeRewardsTrustingly() public {
+        (uint48 eraIndex, address middleware,, bytes memory rewardsDistributionData, uint256 totalAmount) =
+            _distributeRewardsTrustingly();
+
+        assertEq(TanssiMiddlewareMock(middleware).distributionCallsPerEraIndex(eraIndex), 1);
+        assertEq(TanssiMiddlewareMock(middleware).transferredRewardsPerEraIndex(eraIndex), totalAmount);
+        assertEq(
+            uint8(tanssiMetaMiddleware.getDistributionStatusPerEraIndexPerMiddleware(eraIndex, middleware)),
+            uint8(ITanssiMetaMiddleware.DistributionStatus.DISTRIBUTED)
+        );
+    }
+
+    function testCannotDistributeRewardsTrustinglyIfAlreadyDistributed() public {
+        (uint48 eraIndex, address middleware,, bytes memory rewardsDistributionData, uint256 totalAmount) =
+            _distributeRewardsTrustingly();
+
+        vm.expectRevert(
+            abi.encodeWithSelector(ITanssiMetaMiddleware.TanssiMetaMiddleware__UnexpectedDistributionStatus.selector)
+        );
+        vm.prank(automationPerformer);
+        tanssiMetaMiddleware.distributeRewardsToMiddlewareTrustingly(
+            eraIndex, middleware, totalAmount, rewardsDistributionData
+        );
+    }
+
+    function testCannotStoreRewardsTrustinglyIfAlreadyDistributed() public {
+        (
+            uint48 eraIndex,
+            address middleware,
+            ITanssiMetaMiddleware.OperatorRewardWithProof[] memory operatorRewardsAndProofs,
+            ,
+        ) = _distributeRewardsTrustingly();
+
+        vm.expectRevert(
+            abi.encodeWithSelector(ITanssiMetaMiddleware.TanssiMetaMiddleware__UnexpectedDistributionStatus.selector)
+        );
+        tanssiMetaMiddleware.storeRewards(eraIndex, operatorRewardsAndProofs);
+    }
+
+    function testEraIsMarkedAsDistributedWhenAllMiddlewaresHaveDistributed() public {
+        uint48 eraIndex = 1;
+        (
+            TanssiMiddlewareMock[] memory middlewares,
+            uint256 totalTokens,
+            uint256 totalPoints,
+            uint48 epoch,
+            bytes32 root
+        ) = _setupAndDistributeRewards(eraIndex);
+
+        for (uint256 i; i < middlewares.length;) {
+            TanssiMiddlewareMock(middlewares[i]).setDistributionCompleteResponse(true);
+            unchecked {
+                ++i;
+            }
+        }
+
+        for (uint256 i; i < middlewares.length;) {
+            vm.prank(automationPerformer);
+            tanssiMetaMiddleware.distributeRewardsToMiddlewareTrustingly(
+                eraIndex, address(middlewares[i]), 100, new bytes(0)
+            );
+            unchecked {
+                ++i;
+            }
+        }
+
+        assertEq(tanssiMetaMiddleware.getLastDistributedEraIndex(), eraIndex);
+    }
+
+    function _distributeRewardsTrustingly()
+        private
+        returns (
+            uint48 eraIndex,
+            address middleware,
+            ITanssiMetaMiddleware.OperatorRewardWithProof[] memory operatorRewardsAndProofs,
+            bytes memory rewardsDistributionData,
+            uint256 totalAmount
+        )
+    {
+        eraIndex = 1;
+
+        (operatorRewardsAndProofs, middleware,,) = _prepare50OperatorsWithRewardsAndProofs(eraIndex);
 
         TanssiMiddlewareMock(middleware).setDistributionCompleteResponse(true);
 
-        // Current state for the era is transferred, so we should not be able to transfer again
+        (rewardsDistributionData, totalAmount) =
+            tanssiMetaMiddleware.prepareRewardsDistributionData(eraIndex, middleware, operatorRewardsAndProofs);
+
+        vm.prank(automationPerformer);
+        tanssiMetaMiddleware.distributeRewardsToMiddlewareTrustingly(
+            eraIndex, middleware, totalAmount, rewardsDistributionData
+        );
+    }
+
+    function testCannotDistributeManuallyIfAlreadyTransferred() public {
+        // TODO: We need to mark it somehow that distribition started, because both manual and automated will call store rewards first.
+        vm.skip(skipCostTests);
+        uint48 eraIndex = 1;
+
+        (ITanssiMetaMiddleware.OperatorRewardWithProof[] memory operatorRewardsAndProofs, address middleware,,) =
+            _prepare50OperatorsWithRewardsAndProofs(eraIndex);
+        tanssiMetaMiddleware.storeRewards(eraIndex, operatorRewardsAndProofs);
+
+        // We add 30 more operators so they don't all fit in the first batch, even though they will have no rewards, they must be iterated over by the middleware
+        for (uint256 i = 50; i < 80;) {
+            bytes32 operatorKey = bytes32(uint256(i + 1));
+            TanssiMiddlewareMock(middleware).registerOperator(
+                makeAddr(string.concat("operator", vm.toString(i + 1))), operatorKey
+            );
+            unchecked {
+                ++i;
+            }
+        }
+
+        // Automation starts
+        (bytes memory rewardsDistributionData, uint256 totalAmount) =
+            tanssiMetaMiddleware.prepareRewardsDistributionData(eraIndex, middleware, operatorRewardsAndProofs);
+
+        vm.prank(automationPerformer);
+        tanssiMetaMiddleware.distributeRewardsToMiddlewareTrustingly(
+            eraIndex, middleware, totalAmount, rewardsDistributionData
+        );
+
+        // Manual can no longer start
         vm.expectRevert(
             abi.encodeWithSelector(ITanssiMetaMiddleware.TanssiMetaMiddleware__UnexpectedDistributionStatus.selector)
         );
@@ -417,7 +664,7 @@ contract TanssiMetaMiddlewareTest is Utils {
         vm.skip(skipCostTests);
 
         uint48 eraIndex = 1;
-        (, address middleware) = _prepare50OperatorsWithRewardsAndProofs(eraIndex);
+        (, address middleware,,) = _prepare50OperatorsWithRewardsAndProofs(eraIndex);
 
         TanssiMiddlewareMock(middleware).setDistributionCompleteResponse(false);
 
@@ -447,12 +694,19 @@ contract TanssiMetaMiddlewareTest is Utils {
         uint48 eraIndex
     )
         private
-        returns (ITanssiMetaMiddleware.OperatorRewardWithProof[] memory operatorRewardsAndProofs, address middleware)
+        returns (
+            ITanssiMetaMiddleware.OperatorRewardWithProof[] memory operatorRewardsAndProofs,
+            address middleware,
+            uint256 totalTokens,
+            uint256 totalPoints
+        )
     {
         uint48 rewardsKey = 3; // Key "3" has 50 operators
 
-        uint256 totalTokens = 1000 * 10 ** 12;
-        (uint48 epoch, bytes32 root,,, uint32 totalPoints) = _loadRewardsRootAndProof(rewardsKey, 1);
+        totalTokens = 1000 * 10 ** 12;
+        uint48 epoch;
+        bytes32 root;
+        (epoch, root,,, totalPoints) = _loadRewardsRootAndProof(rewardsKey, 1);
 
         rewardsToken.mint(address(tanssiMetaMiddleware), totalTokens);
         TanssiMiddlewareMock[] memory middlewares = _registerMiddlewares();
