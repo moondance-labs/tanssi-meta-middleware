@@ -27,8 +27,8 @@ import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProo
 import {AggregatorV3Interface} from "@chainlink/shared/interfaces/AggregatorV3Interface.sol";
 
 /// ----------------------------- TANSSI -----------------------------
-import {ITanssiCommonMiddleware} from "../../interfaces/meta-middleware/ITanssiCommonMiddleware.sol";
-import {ITanssiMetaMiddleware} from "../../interfaces/meta-middleware/ITanssiMetaMiddleware.sol";
+import {ITanssiCommonMiddleware} from "src/interfaces/meta-middleware/ITanssiCommonMiddleware.sol";
+import {ITanssiMetaMiddleware} from "src/interfaces/meta-middleware/ITanssiMetaMiddleware.sol";
 
 /**
  * @title TanssiEigenMiddleware

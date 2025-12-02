@@ -64,4 +64,19 @@ contract Utils is Test {
         key = string.concat("$.", vm.toString(rewardsKey), ".total_points");
         totalPoints = uint32(vm.parseJsonUint(json, key));
     }
+
+    function getTotalCallsNeeded(
+        uint256 batchSize,
+        uint256 totalOperators,
+        uint256 responseLength
+    ) internal pure returns (uint256) {
+        if (responseLength > 10_240) {
+            batchSize--;
+        }
+        uint256 totalCallsNeeded = 1;
+        while (totalCallsNeeded * batchSize < totalOperators) {
+            totalCallsNeeded++;
+        }
+        return totalCallsNeeded;
+    }
 }
