@@ -31,8 +31,8 @@ import {ITanssiCommonMiddleware} from "src/interfaces/ITanssiCommonMiddleware.so
 import {ITanssiMetaMiddleware} from "src/interfaces/ITanssiMetaMiddleware.sol";
 
 /**
- * @title TanssiEigenMiddleware
- * @notice Middleware for integrating Tanssi into EigenLayer
+ * @title TanssiMetaMiddleware
+ * @notice Middleware for aggregating multiple middleware
  */
 contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITanssiMetaMiddleware {
     using Math for uint256;
