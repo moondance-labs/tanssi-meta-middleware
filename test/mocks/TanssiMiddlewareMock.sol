@@ -14,8 +14,8 @@
 // along with Tanssi.  If not, see <http://www.gnu.org/licenses/>
 pragma solidity ^0.8.25;
 
-import {ITanssiCommonMiddleware} from "src/interfaces/meta-middleware/ITanssiCommonMiddleware.sol";
-import {ITanssiMetaMiddleware} from "src/interfaces/meta-middleware/ITanssiMetaMiddleware.sol";
+import {ITanssiCommonMiddleware} from "src/interfaces/ITanssiCommonMiddleware.sol";
+import {ITanssiMetaMiddleware} from "src/interfaces/ITanssiMetaMiddleware.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 contract TanssiMiddlewareMock { /*is ITanssiCommonMiddleware*/

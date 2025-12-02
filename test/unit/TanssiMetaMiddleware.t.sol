@@ -27,8 +27,8 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 
 // ---------------------- TANSSI CONTRACTS ----------------------
-import {TanssiMetaMiddleware} from "src/contracts/meta-middleware/TanssiMetaMiddleware.sol";
-import {ITanssiMetaMiddleware} from "src/interfaces/meta-middleware/ITanssiMetaMiddleware.sol";
+import {TanssiMetaMiddleware} from "src/contracts/TanssiMetaMiddleware.sol";
+import {ITanssiMetaMiddleware} from "src/interfaces/ITanssiMetaMiddleware.sol";
 
 // ---------------------- TESTS ----------------------
 import {TanssiMiddlewareMock} from "test/mocks/TanssiMiddlewareMock.sol";
