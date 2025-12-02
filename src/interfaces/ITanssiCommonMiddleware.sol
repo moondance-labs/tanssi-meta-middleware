@@ -14,7 +14,7 @@
 // along with Tanssi.  If not, see <http://www.gnu.org/licenses/>
 pragma solidity ^0.8.0;
 
-import {ITanssiMetaMiddleware} from "src/interfaces/ITanssiMetaMiddleware.sol";
+import {ITanssiMetaMiddleware} from "./ITanssiMetaMiddleware.sol";
 
 interface ITanssiCommonMiddleware {
     function prepareRewardsDistributionData(
