@@ -18,7 +18,8 @@ import {ITanssiCommonMiddleware} from "src/interfaces/ITanssiCommonMiddleware.so
 import {ITanssiMetaMiddleware} from "src/interfaces/ITanssiMetaMiddleware.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-contract TanssiMiddlewareMock { /*is ITanssiCommonMiddleware*/
+contract TanssiMiddlewareMock {
+    /*is ITanssiCommonMiddleware*/
     ITanssiMetaMiddleware public immutable metaMiddleware;
     address[] activeOperators;
     mapping(address => bytes32) operatorKeys;
@@ -47,17 +48,29 @@ contract TanssiMiddlewareMock { /*is ITanssiCommonMiddleware*/
         return abi.encode(operatorRewards);
     }
 
-    function distributeRewards(uint48 eraIndex, address, bytes memory) external returns (bool distributionComplete) {
+    function distributeRewards(
+        uint48 eraIndex,
+        address,
+        bytes memory
+    ) external returns (bool distributionComplete) {
         distributionCallsPerEraIndex[eraIndex]++;
 
         distributionComplete = distributionCompleteReponse;
     }
 
-    function slash(uint48 epoch, address operator, uint256 percentage) external {
+    function slash(
+        uint48 epoch,
+        address operator,
+        uint256 percentage
+    ) external {
         slashedOperators[epoch][operator] = percentage;
     }
 
-    function transferRewards(uint48 eraIndex, address tokenAddress, uint256 totalRewards) external {
+    function transferRewards(
+        uint48 eraIndex,
+        address tokenAddress,
+        uint256 totalRewards
+    ) external {
         transferredRewardsPerEraIndex[eraIndex] += totalRewards;
         IERC20(tokenAddress).transferFrom(msg.sender, address(this), totalRewards);
     }
@@ -68,7 +81,10 @@ contract TanssiMiddlewareMock { /*is ITanssiCommonMiddleware*/
         distributionCompleteReponse = distributionComplete;
     }
 
-    function registerOperator(address operator, bytes32 key) external {
+    function registerOperator(
+        address operator,
+        bytes32 key
+    ) external {
         operatorKeys[operator] = key;
         activeOperators.push(operator);
         metaMiddleware.registerOperator(operator, key);
