@@ -34,11 +34,19 @@ interface ITanssiCommonMiddleware {
         bytes memory rewardsDistributionData
     ) external returns (bool distributionComplete);
 
-    function slash(uint48 epoch, address operator, uint256 percentage) external;
+    function slash(
+        uint48 epoch,
+        address operator,
+        uint256 percentage
+    ) external;
 
     function activeOperatorsAtEpoch(
         uint48 epoch
     ) external view returns (address[] memory);
 
-    function transferRewards(uint48 eraIndex, address tokenAddress, uint256 totalRewards) external;
+    function transferRewards(
+        uint48 eraIndex,
+        address tokenAddress,
+        uint256 totalRewards
+    ) external;
 }
