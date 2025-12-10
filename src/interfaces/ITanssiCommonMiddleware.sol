@@ -34,19 +34,19 @@ interface ITanssiCommonMiddleware {
         bytes memory rewardsDistributionData
     ) external returns (bool distributionComplete);
 
-    function slash(
-        uint48 epoch,
-        address operator,
-        uint256 percentage
-    ) external;
+    /**
+     * @notice Slashes an operator's stake
+     * @dev Only the gateway can call this function
+     * @dev This function slashes the operator's stake for the target epoch
+     * @param epoch The epoch number
+     * @param operator The address of the operator to slash
+     * @param percentage Percentage to slash, represented as parts per billion.
+     */
+    function slash(uint48 epoch, address operator, uint256 percentage) external;
 
     function activeOperatorsAtEpoch(
         uint48 epoch
     ) external view returns (address[] memory);
 
-    function transferRewards(
-        uint48 eraIndex,
-        address tokenAddress,
-        uint256 totalRewards
-    ) external;
+    function transferRewards(uint48 eraIndex, address tokenAddress, uint256 totalRewards) external;
 }
