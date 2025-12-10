@@ -80,11 +80,12 @@ interface ITanssiMetaMiddleware {
     error TanssiMetaMiddleware__CouldNotDistributeRewardsInASingleCall();
     error TanssiMetaMiddleware__EraRootNotSet();
     error TanssiMetaMiddleware__InsufficientRewardsReceived();
+    error TanssiMetaMiddleware__InvalidKeysLength();
     error TanssiMetaMiddleware__InvalidProof();
     error TanssiMetaMiddleware__KeyAlreadyUsed();
     error TanssiMetaMiddleware__MiddlewareAlreadyRegistered();
-    error TanssiMetaMiddleware__UnexpectedEraIndex();
     error TanssiMetaMiddleware__UnexpectedDistributionStatus();
+    error TanssiMetaMiddleware__UnexpectedEraIndex();
     error TanssiMetaMiddleware__UnexpectedMiddleware();
     error TanssiMetaMiddleware__UnknownMiddleware();
 
@@ -96,20 +97,11 @@ interface ITanssiMetaMiddleware {
         address middleware
     ) external;
 
-    function registerCollateral(
-        address collateral,
-        address oracle
-    ) external;
+    function registerCollateral(address collateral, address oracle) external;
 
-    function registerOperator(
-        address operator,
-        bytes32 key
-    ) external;
+    function registerOperator(address operator, bytes32 key) external;
 
-    function updateOperatorKey(
-        address operator,
-        bytes32 newKey
-    ) external;
+    function updateOperatorKey(address operator, bytes32 newKey) external;
 
     /**
      * @notice Distribute rewards for a specific era contained in an epoch by providing a Merkle root, total points, total amount of tokens and the token address of the rewards.
@@ -139,11 +131,7 @@ interface ITanssiMetaMiddleware {
      * @param operatorKey The operator key to slash
      * @param percentage Percentage to slash, represented as parts per billion.
      */
-    function slash(
-        uint48 epoch,
-        bytes32 operatorKey,
-        uint256 percentage
-    ) external;
+    function slash(uint48 epoch, bytes32 operatorKey, uint256 percentage) external;
 
     function isValidCollateral(
         address collateral
