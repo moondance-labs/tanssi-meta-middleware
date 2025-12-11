@@ -3,6 +3,7 @@ import { PerformData } from "./types";
 
 export const CACHE_DATA_COMMAND = 1;
 export const SEND_DATA_COMMAND = 2;
+export const CRE_AUTOMATION_CODE = 101;
 
 // Utility function to safely stringify objects with bigints
 export const safeJsonStringify = (obj: any): string =>

@@ -24,6 +24,7 @@ import {
   decodePerformData,
   SEND_DATA_COMMAND,
   safeJsonStringify,
+  CRE_AUTOMATION_CODE,
 } from "./utils";
 import { CheckUpkeepTuple } from "./types";
 
@@ -79,6 +80,11 @@ const cacheAndSendOperatorsToGateway = (
       data: bytesToHex(contractCall.data),
     }) as CheckUpkeepTuple;
 
+    if (!upkeepNeeded) {
+      runtime.log("No upkeep needed at this time. Exiting loop.");
+      return;
+    }
+
     runtime.log(
       `Decoded checkUpkeep result: upkeepNeeded=${upkeepNeeded}, performData=${performData}`
     );
@@ -87,9 +93,10 @@ const cacheAndSendOperatorsToGateway = (
 
     runtime.log(`Decoded performData: ${safeJsonStringify(decodedData)}`);
 
-    const reportData = encodeAbiParameters(parseAbiParameters("bytes"), [
-      performData,
-    ]);
+    const reportData = encodeAbiParameters(
+      parseAbiParameters("uint8 executionCode, bytes performData"),
+      [CRE_AUTOMATION_CODE, performData]
+    );
 
     const reportResponse = runtime
       .report({
