@@ -41,6 +41,7 @@ interface ITanssiCommonMiddleware {
      * @param operatorRewards Array of operator rewards to include in the distribution
      * @return rewardsDistributionData Encoded data containing the rewards distribution information
      * @dev This function allows preparing distribution data from pre-calculated operator rewards
+     * @dev The output of this function is then passed to the distributeRewards call.
      */
     function prepareRewardsDistributionDataFromOperatorRewards(
         uint48 eraIndex,
@@ -67,7 +68,6 @@ interface ITanssiCommonMiddleware {
      * @param epoch The epoch number for which the slash applies
      * @param operator The address of the operator to slash
      * @param percentage The percentage to slash, represented as parts per billion
-     * @dev This function reduces the operator's stake and may affect their rewards eligibility
      */
     function slash(uint48 epoch, address operator, uint256 percentage) external;
 

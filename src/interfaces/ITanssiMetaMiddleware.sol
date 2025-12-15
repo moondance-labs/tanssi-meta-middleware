@@ -81,16 +81,29 @@ interface ITanssiMetaMiddleware {
         uint256 rewardAmount;
     }
 
+    /// @notice Thrown when attempting to register a collateral that is already registered
     error TanssiMetaMiddleware__CollateralAlreadyRegistered();
+    /// @notice Thrown when rewards distribution cannot be completed in a single transaction
     error TanssiMetaMiddleware__CouldNotDistributeRewardsInASingleCall();
+    /// @notice Thrown when attempting to set an era root that has already been set
+    error TanssiMetaMiddleware__EraRootAlreadySet();
+    /// @notice Thrown when attempting to access an era root that has not been set
     error TanssiMetaMiddleware__EraRootNotSet();
+    /// @notice Thrown when the total rewards received does not match the expected balance
     error TanssiMetaMiddleware__InsufficientRewardsReceived();
+    /// @notice Thrown when a Merkle proof verification fails
     error TanssiMetaMiddleware__InvalidProof();
+    /// @notice Thrown when attempting to use an operator key that has already been used
     error TanssiMetaMiddleware__KeyAlreadyUsed();
+    /// @notice Thrown when attempting to register a middleware that is already registered
     error TanssiMetaMiddleware__MiddlewareAlreadyRegistered();
-    error TanssiMetaMiddleware__UnexpectedEraIndex();
+    /// @notice Thrown when the distribution status is not in the expected state for the operation
     error TanssiMetaMiddleware__UnexpectedDistributionStatus();
+    /// @notice Thrown when the era index does not match the expected sequential order
+    error TanssiMetaMiddleware__UnexpectedEraIndex();
+    /// @notice Thrown when an operator is associated with a different middleware than expected
     error TanssiMetaMiddleware__UnexpectedMiddleware();
+    /// @notice Thrown when attempting to use a middleware that is not registered
     error TanssiMetaMiddleware__UnknownMiddleware();
 
     event CollateralRegistered(address indexed collateral, address indexed oracle);
@@ -110,7 +123,7 @@ interface ITanssiMetaMiddleware {
     /**
      * @notice Registers a collateral token with its associated price oracle
      * @param collateral The address of the collateral token
-     * @param oracle The address of the Chainlink price oracle for the collateral
+     * @param oracle The address of the price oracle for the collateral
      * @dev Only callable by the admin role
      * @dev Emits CollateralRegistered event
      */
@@ -189,6 +202,7 @@ interface ITanssiMetaMiddleware {
      * @param middleware The middleware address to query
      * @param operators Array of operator addresses to get rewards for
      * @return Array of reward amounts corresponding to each operator
+     * @dev The rewards are only cached via storeRewards method, which is not used on the trustingly distributed rewards.
      */
     function getOperatorsRewards(
         uint48 eraIndex,

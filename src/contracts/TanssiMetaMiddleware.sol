@@ -33,8 +33,6 @@ import {ITanssiMetaMiddleware} from "../interfaces/ITanssiMetaMiddleware.sol";
 /**
  * @title TanssiMetaMiddleware
  * @notice Middleware for aggregating multiple middleware instances and managing rewards distribution, slashing and sorting operators by power
- * @dev This contract acts as a meta middleware that coordinates between multiple middleware instances,
- *      manages operator registration, collateral oracles, and handles rewards distribution across eras
  */
 contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITanssiMetaMiddleware {
     using Math for uint256;
@@ -84,8 +82,8 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
             distributionStatusPerEraIndexPerMiddleware;
         mapping(uint48 eraIndex => mapping(address middleware => uint256 rewards)) pointsStoredPerEraIndexPerMiddleware;
         mapping(uint48 eraIndex => bool eraTransferred) eraTransferred;
-        uint256 totalRewardsReceived; // Total amount of rewards received from the gateway
-        uint256 totalRewardsTransferred; // Total amount of rewards distributed to the middlewares
+        uint256 totalRewardsReceived;
+        uint256 totalRewardsTransferred;
     }
 
     // keccak256(abi.encode(uint256(keccak256("tanssi-meta-middleware.storage.TanssiMetaMiddlewareStorage.v1")) - 1)) & ~bytes32(uint256(0xff))
@@ -111,7 +109,6 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
 
     /**
      * @notice Constructor that disables initializers to prevent initialization of the implementation contract
-     * @dev This ensures the implementation contract cannot be initialized directly
      */
     constructor() {
         _disableInitializers();
@@ -199,6 +196,9 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
         address tokenAddress
     ) external onlyRole(GATEWAY_ROLE) {
         TanssiMetaMiddlewareRewardsStorage storage $r = _getTanssiMetaMiddlewareRewardsStorage();
+
+        require($r.eraRoot[eraIndex].epoch == 0, TanssiMetaMiddleware__EraRootAlreadySet());
+
         require($r.lastReceivedEraIndex + 1 == eraIndex, TanssiMetaMiddleware__UnexpectedEraIndex());
 
         require(
@@ -274,7 +274,7 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
      * @param middleware The middleware address to query
      * @param operators Array of operator addresses to get rewards for
      * @return operatorRewards Array of reward amounts corresponding to each operator
-     * @dev The rewards are only cached via storeRewards method, which is no used on the trustingly distributed rewards.
+     * @dev The rewards are only cached via storeRewards method, which is not used on the trustingly distributed rewards.
      */
     function getOperatorsRewards(
         uint48 eraIndex,
@@ -366,6 +366,7 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
      * @param eraIndex The era index to query
      * @param middleware The middleware address to query
      * @return pointsStored The total points stored for the era and middleware combination
+     * @dev The points are only stored via storeRewards method, which is not used on the trustingly distributed rewards.
      */
     function getPointsStoredPerEraIndexPerMiddleware(
         uint48 eraIndex,
@@ -386,7 +387,19 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
         TanssiMetaMiddlewareRewardsStorage storage $r = _getTanssiMetaMiddlewareRewardsStorage();
         EraRoot memory eraRoot = _loadAndVerifyEraRoot($r, eraIndex);
 
-        _storeRewards($r, eraIndex, eraRoot, operatorRewardsAndProofs);
+        // If the era has already been transferred, distribution is in progress and we cannot know if it was already partially distributed so we need to revert.
+        require(!$r.eraTransferred[eraIndex], TanssiMetaMiddleware__UnexpectedDistributionStatus());
+
+        uint256 totalOperators = operatorRewardsAndProofs.length;
+        uint256 totalPointsProcessed;
+        for (uint256 i; i < totalOperators;) {
+            OperatorRewardWithProof memory operatorRewardAndProof = operatorRewardsAndProofs[i];
+            _verifyProofAndStoreReward($r, eraIndex, eraRoot, operatorRewardAndProof);
+            totalPointsProcessed += operatorRewardAndProof.totalPoints;
+            unchecked {
+                ++i;
+            }
+        }
         _transferRewardsIfAllStored($r, eraIndex, eraRoot);
     }
 
@@ -398,7 +411,7 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
      * @return rewardsDistributionData Encoded data containing the rewards distribution information
      * @return totalAmount The total amount of rewards to be distributed
      * @dev This function verifies proofs and prepares distribution data without storing rewards
-     * @dev The actual rewards distribution data is prepared by the middleware itself, in an arbitrary encoding that it can use on   the distributeRewardsToMiddlewareTrustingly call.
+     * @dev The actual rewards distribution data is prepared by each middleware itself, in an arbitrary encoding that it is then passed to the distributeRewardsToMiddlewareTrustingly call.
      */
     function prepareRewardsDistributionData(
         uint48 eraIndex,
@@ -431,14 +444,17 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
     }
 
     /**
-     * @notice Manually distributes rewards to a middleware for a specific era
-     * @param eraIndex The era index for which to distribute rewards
-     * @param middleware The middleware address to distribute rewards to
-     * @dev Only callable for a known middleware
-     * @dev Requires that distribution status is PENDING
-     * @dev Reverts if distribution cannot be completed in a single call
+     * @notice Trustlessly distributes rewards to a middleware for a specific era.
+     * @param eraIndex    The era index for which to distribute rewards.
+     * @param middleware  The middleware address to distribute rewards to.
+     * @dev Only callable for a known middleware.
+     * @dev Requires that distribution status is PENDING.
+     * @dev Reverts if distribution cannot be completed in a single call.
+     * @dev This operation is significantly more expensive than trustingly distributed rewards,
+     *      since it requires all rewards for each operator to be stored beforehand and prepares
+     *      distribution data within this call.
      */
-    function distributeRewardsToMiddlewareManually(
+    function distributeRewardsToMiddlewareTrustlessly(
         uint48 eraIndex,
         address middleware
     ) external onlyKnownMiddleware(middleware) {
@@ -552,36 +568,6 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
         eraRoot = $r.eraRoot[eraIndex];
 
         require(eraRoot.epoch != 0, TanssiMetaMiddleware__EraRootNotSet());
-    }
-
-    /**
-     * @notice Stores operator rewards after verifying Merkle proofs
-     * @param $r Reference to the rewards storage
-     * @param eraIndex The era index for which to store rewards
-     * @param eraRoot The era root data containing the Merkle root
-     * @param operatorRewardsAndProofs Array of operator rewards with their Merkle proofs
-     * @dev Verifies each proof and stores the reward amounts per operator per middleware
-     * @dev Reverts if the era has already been transferred (distribution in progress)
-     */
-    function _storeRewards(
-        TanssiMetaMiddlewareRewardsStorage storage $r,
-        uint48 eraIndex,
-        EraRoot memory eraRoot,
-        OperatorRewardWithProof[] memory operatorRewardsAndProofs
-    ) internal {
-        // If the era has already been transferred, distribution is in progress and we cannot know if it was already partially distributed so we need to revert.
-        require(!$r.eraTransferred[eraIndex], TanssiMetaMiddleware__UnexpectedDistributionStatus());
-
-        uint256 totalOperators = operatorRewardsAndProofs.length;
-        uint256 totalPointsProcessed;
-        for (uint256 i; i < totalOperators;) {
-            OperatorRewardWithProof memory operatorRewardAndProof = operatorRewardsAndProofs[i];
-            _verifyProofAndStoreReward($r, eraIndex, eraRoot, operatorRewardAndProof);
-            totalPointsProcessed += operatorRewardAndProof.totalPoints;
-            unchecked {
-                ++i;
-            }
-        }
     }
 
     /**
@@ -763,35 +749,25 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
     }
 
     /**
-     * @notice Reverses the byte order of a 32-bit unsigned integer
-     * @param input The 32-bit value to reverse
-     * @return v The reversed 32-bit value
-     * @dev Taken from Snowbridge's ScaleCodec.sol. Used for encoding SCALE-encoded data.
+     * @notice Encodes a 32-bit unsigned integer as SCALE-encoded bytes
+     * @param input The 32-bit value to encode
+     * @return The SCALE-encoded bytes4 representation
+     * @dev Taken from Snowbridge's ScaleCodec.sol. Used for Merkle proof verification.
+     * @dev Reverses the byte order of the input before converting to bytes4
      */
     // Taken from Snowbridge's ScaleCodec.sol. The original solidity version is not compatible with this project.
-    function _reverse32(
+    function _encodeU32(
         uint32 input
-    ) internal pure returns (uint32 v) {
-        v = input;
+    ) internal pure returns (bytes4) {
+        uint32 v = input;
 
         // swap bytes
         v = ((v & 0xFF00FF00) >> 8) | ((v & 0x00FF00FF) << 8);
 
         // swap 2-byte long pairs
         v = (v >> 16) | (v << 16);
-    }
 
-    /**
-     * @notice Encodes a 32-bit unsigned integer as SCALE-encoded bytes
-     * @param input The 32-bit value to encode
-     * @return The SCALE-encoded bytes4 representation
-     * @dev Taken from Snowbridge's ScaleCodec.sol. Used for Merkle proof verification.
-     */
-    // Taken from Snowbridge's ScaleCodec.sol. The original solidity version is not compatible with this project.
-    function _encodeU32(
-        uint32 input
-    ) internal pure returns (bytes4) {
-        return bytes4(_reverse32(input));
+        return bytes4(v);
     }
 
     /**
