@@ -127,10 +127,7 @@ interface ITanssiMetaMiddleware {
      * @dev Only callable by the admin role
      * @dev Emits CollateralRegistered event
      */
-    function registerCollateral(
-        address collateral,
-        address oracle
-    ) external;
+    function registerCollateral(address collateral, address oracle) external;
 
     /**
      * @notice Registers an operator with a unique key
@@ -139,10 +136,7 @@ interface ITanssiMetaMiddleware {
      * @dev Only callable by registered middlewares
      * @dev Emits OperatorRegistered event
      */
-    function registerOperator(
-        address operator,
-        bytes32 key
-    ) external;
+    function registerOperator(address operator, bytes32 key) external;
 
     /**
      * @notice Updates the key associated with an operator
@@ -151,10 +145,7 @@ interface ITanssiMetaMiddleware {
      * @dev Only callable by the middleware that registered the operator
      * @dev Emits OperatorKeySet event
      */
-    function updateOperatorKey(
-        address operator,
-        bytes32 newKey
-    ) external;
+    function updateOperatorKey(address operator, bytes32 newKey) external;
 
     /**
      * @notice Distribute rewards for a specific era contained in an epoch by providing a Merkle root, total points, total amount of tokens and the token address of the rewards.
@@ -184,11 +175,7 @@ interface ITanssiMetaMiddleware {
      * @param operatorKey The operator key to slash
      * @param percentage Percentage to slash, represented as parts per billion.
      */
-    function slash(
-        uint48 epoch,
-        bytes32 operatorKey,
-        uint256 percentage
-    ) external;
+    function slash(uint48 epoch, bytes32 operatorKey, uint256 percentage) external;
 
     /**
      * @notice Checks if a collateral token is registered and valid

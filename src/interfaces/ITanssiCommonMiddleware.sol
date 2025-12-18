@@ -69,11 +69,7 @@ interface ITanssiCommonMiddleware {
      * @param operator The address of the operator to slash
      * @param percentage The percentage to slash, represented as parts per billion
      */
-    function slash(
-        uint48 epoch,
-        address operator,
-        uint256 percentage
-    ) external;
+    function slash(uint48 epoch, address operator, uint256 percentage) external;
 
     /**
      * @notice Returns the list of active operators at a specific epoch
@@ -92,9 +88,5 @@ interface ITanssiCommonMiddleware {
      * @dev This function is called by the meta middleware to transfer rewards before distribution
      * @dev This function is called only once per era and middleware
      */
-    function transferRewards(
-        uint48 eraIndex,
-        address tokenAddress,
-        uint256 totalRewards
-    ) external;
+    function transferRewards(uint48 eraIndex, address tokenAddress, uint256 totalRewards) external;
 }

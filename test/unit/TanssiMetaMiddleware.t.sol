@@ -395,10 +395,8 @@ contract TanssiMetaMiddlewareTest is Utils {
             console2.log("Max proof length for", o, "operators:", proofLength);
 
             bytes32[] memory proof = new bytes32[](proofLength);
-            ITanssiMetaMiddleware.OperatorRewardWithProof memory mockRewardsWithProof =
-                ITanssiMetaMiddleware.OperatorRewardWithProof({
-                    operatorKey: OPERATOR1_KEY, totalPoints: 1, proof: proof
-                });
+            ITanssiMetaMiddleware.OperatorRewardWithProof memory mockRewardsWithProof = ITanssiMetaMiddleware
+                .OperatorRewardWithProof({operatorKey: OPERATOR1_KEY, totalPoints: 1, proof: proof});
 
             for (uint256 i = 1; i <= 40; i += 1) {
                 ITanssiMetaMiddleware.OperatorRewardWithProof[] memory operatorRewardsAndProofs =
@@ -518,7 +516,8 @@ contract TanssiMetaMiddlewareTest is Utils {
         uint48 eraIndex = 1;
         (
             ITanssiMetaMiddleware.OperatorRewardWithProof[] memory operatorRewardsAndProofs,
-            address middleware,,
+            address middleware,
+            ,
             uint256 totalPoints
         ) = _prepare50OperatorsWithRewardsAndProofs(eraIndex);
         uint256 removedPoints = operatorRewardsAndProofs[0].totalPoints;
@@ -637,8 +636,9 @@ contract TanssiMetaMiddlewareTest is Utils {
         // We add 30 more operators so they don't all fit in the first batch, even though they will have no rewards, they must be iterated over by the middleware
         for (uint256 i = 50; i < 80;) {
             bytes32 operatorKey = bytes32(uint256(i + 1));
-            TanssiMiddlewareMock(middleware)
-                .registerOperator(makeAddr(string.concat("operator", vm.toString(i + 1))), operatorKey);
+            TanssiMiddlewareMock(middleware).registerOperator(
+                makeAddr(string.concat("operator", vm.toString(i + 1))), operatorKey
+            );
             unchecked {
                 ++i;
             }
@@ -758,9 +758,8 @@ contract TanssiMetaMiddlewareTest is Utils {
         uint48 eraIndex
     ) private view returns (ITanssiMetaMiddleware.OperatorRewardWithProof memory operatorRewardAndProof) {
         (,, bytes32[] memory proof, uint32 points,) = _loadRewardsRootAndProof(eraIndex, operator);
-        operatorRewardAndProof = ITanssiMetaMiddleware.OperatorRewardWithProof({
-            operatorKey: operatorKey, totalPoints: points, proof: proof
-        });
+        operatorRewardAndProof =
+            ITanssiMetaMiddleware.OperatorRewardWithProof({operatorKey: operatorKey, totalPoints: points, proof: proof});
     }
 
     function _getExpectedRewardsAmounts(
