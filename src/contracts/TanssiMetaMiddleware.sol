@@ -76,8 +76,9 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
         uint48 lastDistributedEraIndex;
         mapping(uint48 eraIndex => EraRoot eraRoot) eraRoot;
         mapping(uint48 epoch => uint48[] eraIndexes) eraIndexesPerEpoch;
-        mapping(uint48 eraIndex => mapping(address middleware => mapping(address operator => uint256 rewardAmount)))
-            operatorRewardsPerIndexPerMiddlewarePerOperator;
+        mapping(
+            uint48 eraIndex => mapping(address middleware => mapping(address operator => uint256 rewardAmount))
+        ) operatorRewardsPerIndexPerMiddlewarePerOperator;
         mapping(uint48 eraIndex => mapping(address middleware => DistributionStatus status))
             distributionStatusPerEraIndexPerMiddleware;
         mapping(uint48 eraIndex => mapping(address middleware => uint256 rewards)) pointsStoredPerEraIndexPerMiddleware;
@@ -143,7 +144,10 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
     /**
      * @inheritdoc ITanssiMetaMiddleware
      */
-    function registerOperator(address operator, bytes32 key) external onlyKnownMiddleware(msg.sender) {
+    function registerOperator(
+        address operator,
+        bytes32 key
+    ) external onlyKnownMiddleware(msg.sender) {
         TanssiMetaMiddlewareStorage storage $ = _getTanssiMetaMiddlewareStorage();
 
         $.operatorToMiddleware[operator] = msg.sender;
@@ -155,7 +159,10 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
     /**
      * @inheritdoc ITanssiMetaMiddleware
      */
-    function updateOperatorKey(address operator, bytes32 newKey) external onlyKnownMiddleware(msg.sender) {
+    function updateOperatorKey(
+        address operator,
+        bytes32 newKey
+    ) external onlyKnownMiddleware(msg.sender) {
         TanssiMetaMiddlewareStorage storage $ = _getTanssiMetaMiddlewareStorage();
         require($.operatorToMiddleware[operator] == msg.sender, TanssiMetaMiddleware__UnexpectedMiddleware());
 
@@ -177,7 +184,10 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
     /**
      * @inheritdoc ITanssiMetaMiddleware
      */
-    function registerCollateral(address collateral, address oracle) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function registerCollateral(
+        address collateral,
+        address oracle
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
         TanssiMetaMiddlewareStorage storage $ = _getTanssiMetaMiddlewareStorage();
         require($.collateralToOracle[collateral] == address(0), TanssiMetaMiddleware__CollateralAlreadyRegistered());
 
@@ -383,7 +393,10 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
      * @dev This function verifies Merkle proofs and stores the rewards. If all points are stored,
      *      it automatically transfers rewards to middlewares
      */
-    function storeRewards(uint48 eraIndex, OperatorRewardWithProof[] memory operatorRewardsAndProofs) external {
+    function storeRewards(
+        uint48 eraIndex,
+        OperatorRewardWithProof[] memory operatorRewardsAndProofs
+    ) external {
         TanssiMetaMiddlewareRewardsStorage storage $r = _getTanssiMetaMiddlewareRewardsStorage();
         EraRoot memory eraRoot = _loadAndVerifyEraRoot($r, eraIndex);
 
@@ -438,9 +451,8 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
             }
         }
 
-        rewardsDistributionData = ITanssiCommonMiddleware(middleware).prepareRewardsDistributionDataFromOperatorRewards(
-            eraIndex, eraRoot.tokenAddress, operatorRewards
-        );
+        rewardsDistributionData = ITanssiCommonMiddleware(middleware)
+            .prepareRewardsDistributionDataFromOperatorRewards(eraIndex, eraRoot.tokenAddress, operatorRewards);
     }
 
     /**
@@ -512,7 +524,11 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
     /**
      * @inheritdoc ITanssiMetaMiddleware
      */
-    function slash(uint48 epoch, bytes32 operatorKey, uint256 percentage) external onlyRole(GATEWAY_ROLE) {
+    function slash(
+        uint48 epoch,
+        bytes32 operatorKey,
+        uint256 percentage
+    ) external onlyRole(GATEWAY_ROLE) {
         TanssiMetaMiddlewareStorage storage $ = _getTanssiMetaMiddlewareStorage();
         address operator = $.keyToOperator[operatorKey];
         address middleware = $.operatorToMiddleware[operator];
@@ -540,9 +556,8 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
     ) internal returns (bool distributionComplete) {
         TanssiMetaMiddlewareRewardsStorage storage $r = _getTanssiMetaMiddlewareRewardsStorage();
 
-        distributionComplete = ITanssiCommonMiddleware(middleware).distributeRewards(
-            eraIndex, eraRoot.tokenAddress, rewardsDistributionData
-        );
+        distributionComplete = ITanssiCommonMiddleware(middleware)
+            .distributeRewards(eraIndex, eraRoot.tokenAddress, rewardsDistributionData);
 
         if (distributionComplete) {
             $r.distributionStatusPerEraIndexPerMiddleware[eraIndex][middleware] = DistributionStatus.DISTRIBUTED;
@@ -596,7 +611,7 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
         address middleware = $.operatorToMiddleware[operatorReward.operator];
 
         $r.operatorRewardsPerIndexPerMiddlewarePerOperator[eraIndex][middleware][operatorReward.operator] =
-            operatorReward.rewardAmount;
+        operatorReward.rewardAmount;
         $r.pointsStoredPerEraIndexPerMiddleware[eraIndex][middleware] += totalPoints;
     }
 
@@ -664,9 +679,8 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
                     eraRoot.totalAmount.mulDiv(totalPointsForEraAndMiddleware, eraRoot.totalPoints);
 
                 IERC20(eraRoot.tokenAddress).approve(middleware, totalRewardsForEraAndMiddleware);
-                ITanssiCommonMiddleware(middleware).transferRewards(
-                    eraIndex, eraRoot.tokenAddress, totalRewardsForEraAndMiddleware
-                );
+                ITanssiCommonMiddleware(middleware)
+                    .transferRewards(eraIndex, eraRoot.tokenAddress, totalRewardsForEraAndMiddleware);
 
                 unchecked {
                     $r.totalRewardsTransferred += totalRewardsForEraAndMiddleware;
@@ -686,7 +700,10 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
      * @param eraIndex The era index that was just processed
      * @dev Checks if all middlewares have DISTRIBUTED status for this era, then updates lastDistributedEraIndex
      */
-    function _updateLastDistributedEraIndex(TanssiMetaMiddlewareRewardsStorage storage $r, uint48 eraIndex) internal {
+    function _updateLastDistributedEraIndex(
+        TanssiMetaMiddlewareRewardsStorage storage $r,
+        uint48 eraIndex
+    ) internal {
         TanssiMetaMiddlewareStorage storage $ = _getTanssiMetaMiddlewareStorage();
         address[] memory middlewares = $.middlewares;
         bool allDistributed = true;
@@ -712,7 +729,10 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
      * @dev Reverts if the key has already been used
      * @dev Emits OperatorKeySet event
      */
-    function _setOperatorKey(address operator, bytes32 newKey) internal {
+    function _setOperatorKey(
+        address operator,
+        bytes32 newKey
+    ) internal {
         TanssiMetaMiddlewareStorage storage $ = _getTanssiMetaMiddlewareStorage();
         require(!$.usedKeys[newKey], TanssiMetaMiddleware__KeyAlreadyUsed());
 
