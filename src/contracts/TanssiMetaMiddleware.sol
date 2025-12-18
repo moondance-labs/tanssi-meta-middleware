@@ -107,12 +107,16 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
         _;
     }
 
+    // ---------------------- Constructor ----------------------
+
     /**
      * @notice Constructor that disables initializers to prevent initialization of the implementation contract
      */
     constructor() {
         _disableInitializers();
     }
+
+    // ---------------------- External ----------------------
 
     /**
      * @notice Initializes the contract with an admin address
@@ -160,18 +164,6 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
         require($.operatorToMiddleware[operator] == msg.sender, TanssiMetaMiddleware__UnexpectedMiddleware());
 
         _setOperatorKey(operator, newKey);
-    }
-
-    /**
-     * @notice Retrieves the operator address associated with a given key
-     * @param key The operator key to look up
-     * @return operator The address of the operator associated with the key, or address(0) if not found
-     */
-    function keyToOperator(
-        bytes32 key
-    ) external view returns (address operator) {
-        TanssiMetaMiddlewareStorage storage $ = _getTanssiMetaMiddlewareStorage();
-        operator = $.keyToOperator[key];
     }
 
     /**
@@ -225,6 +217,104 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
     /**
      * @inheritdoc ITanssiMetaMiddleware
      */
+    function slash(uint48 epoch, bytes32 operatorKey, uint256 percentage) external onlyRole(GATEWAY_ROLE) {
+        TanssiMetaMiddlewareStorage storage $ = _getTanssiMetaMiddlewareStorage();
+        address operator = $.keyToOperator[operatorKey];
+        address middleware = $.operatorToMiddleware[operator];
+        require(middleware != address(0), TanssiMetaMiddleware__UnexpectedMiddleware());
+
+        ITanssiCommonMiddleware(middleware).slash(epoch, operator, percentage);
+    }
+
+    /**
+     * @inheritdoc ITanssiMetaMiddleware
+     */
+    function storeRewards(uint48 eraIndex, OperatorRewardWithProof[] memory operatorRewardsAndProofs) external {
+        TanssiMetaMiddlewareRewardsStorage storage $r = _getTanssiMetaMiddlewareRewardsStorage();
+        EraRoot memory eraRoot = _loadAndVerifyEraRoot($r, eraIndex);
+
+        // If the era has already been transferred, distribution is in progress and we cannot know if it was already partially distributed so we need to revert.
+        require(!$r.eraTransferred[eraIndex], TanssiMetaMiddleware__UnexpectedDistributionStatus());
+
+        uint256 totalOperators = operatorRewardsAndProofs.length;
+        uint256 totalPointsProcessed;
+        for (uint256 i; i < totalOperators;) {
+            OperatorRewardWithProof memory operatorRewardAndProof = operatorRewardsAndProofs[i];
+            _verifyProofAndStoreReward($r, eraIndex, eraRoot, operatorRewardAndProof);
+            totalPointsProcessed += operatorRewardAndProof.totalPoints;
+            unchecked {
+                ++i;
+            }
+        }
+        _transferRewardsIfAllStored($r, eraIndex, eraRoot);
+    }
+
+    /**
+     * @inheritdoc ITanssiMetaMiddleware
+     */
+    function distributeRewardsToMiddlewareTrustlessly(
+        uint48 eraIndex,
+        address middleware
+    ) external onlyKnownMiddleware(middleware) {
+        TanssiMetaMiddlewareRewardsStorage storage $r = _getTanssiMetaMiddlewareRewardsStorage();
+        EraRoot memory eraRoot = _loadAndVerifyEraRoot($r, eraIndex);
+
+        DistributionStatus currentStatus = $r.distributionStatusPerEraIndexPerMiddleware[eraIndex][middleware];
+
+        // Cannot distribute if distrubution is in progress (by automation in batches) or already distributed
+        require(currentStatus == DistributionStatus.PENDING, TanssiMetaMiddleware__UnexpectedDistributionStatus());
+
+        bytes memory rewardsDistributionData =
+            ITanssiCommonMiddleware(middleware).prepareRewardsDistributionData(eraIndex, eraRoot.tokenAddress);
+
+        bool distributionComplete =
+            _distributeRewardsToMiddleware(eraIndex, middleware, eraRoot, currentStatus, rewardsDistributionData);
+
+        if (!distributionComplete) {
+            revert TanssiMetaMiddleware__CouldNotDistributeRewardsInASingleCall();
+        }
+    }
+
+    /**
+     * @inheritdoc ITanssiMetaMiddleware
+     */
+    function distributeRewardsToMiddlewareTrustingly(
+        uint48 eraIndex,
+        address middleware,
+        uint256 totalAmount,
+        bytes memory rewardsDistributionData
+    ) external onlyKnownMiddleware(middleware) onlyRole(AUTOMATION_ROLE) {
+        TanssiMetaMiddlewareRewardsStorage storage $r = _getTanssiMetaMiddlewareRewardsStorage();
+        EraRoot memory eraRoot = _loadAndVerifyEraRoot($r, eraIndex);
+
+        DistributionStatus currentStatus = $r.distributionStatusPerEraIndexPerMiddleware[eraIndex][middleware];
+
+        require(currentStatus != DistributionStatus.DISTRIBUTED, TanssiMetaMiddleware__UnexpectedDistributionStatus());
+
+        if (!$r.eraTransferred[eraIndex]) {
+            IERC20(eraRoot.tokenAddress).approve(middleware, totalAmount);
+            ITanssiCommonMiddleware(middleware).transferRewards(eraIndex, eraRoot.tokenAddress, totalAmount);
+            $r.eraTransferred[eraIndex] = true;
+        }
+
+        _distributeRewardsToMiddleware(eraIndex, middleware, eraRoot, currentStatus, rewardsDistributionData);
+    }
+
+    // ---------------------- External View ----------------------
+
+    /**
+     * @inheritdoc ITanssiMetaMiddleware
+     */
+    function keyToOperator(
+        bytes32 key
+    ) external view returns (address operator) {
+        TanssiMetaMiddlewareStorage storage $ = _getTanssiMetaMiddlewareStorage();
+        operator = $.keyToOperator[key];
+    }
+
+    /**
+     * @inheritdoc ITanssiMetaMiddleware
+     */
     function isValidCollateral(
         address collateral
     ) external view returns (bool) {
@@ -257,9 +347,7 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
     }
 
     /**
-     * @notice Checks if a middleware is registered with the meta middleware
-     * @param middleware The middleware address to check
-     * @return True if the middleware is registered, false otherwise
+     * @inheritdoc ITanssiMetaMiddleware
      */
     function isMiddlewareRegistered(
         address middleware
@@ -269,12 +357,7 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
     }
 
     /**
-     * @notice Retrieves the cached reward amounts for specific operators in a given era and middleware
-     * @param eraIndex The era index to query
-     * @param middleware The middleware address to query
-     * @param operators Array of operator addresses to get rewards for
-     * @return operatorRewards Array of reward amounts corresponding to each operator
-     * @dev The rewards are only cached via storeRewards method, which is not used on the trustingly distributed rewards.
+     * @inheritdoc ITanssiMetaMiddleware
      */
     function getOperatorsRewards(
         uint48 eraIndex,
@@ -294,9 +377,7 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
     }
 
     /**
-     * @notice Retrieves the era root data for a specific era index
-     * @param eraIndex The era index to query
-     * @return eraRoot EraRoot struct containing epoch, total amount, total points, root, and token address
+     * @inheritdoc ITanssiMetaMiddleware
      */
     function getEraRoot(
         uint48 eraIndex
@@ -306,9 +387,7 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
     }
 
     /**
-     * @notice Retrieves all era indices associated with a specific epoch
-     * @param epoch The epoch number to query
-     * @return eraIndexes Array of era indices that belong to the specified epoch
+     * @inheritdoc ITanssiMetaMiddleware
      */
     function getEraIndexesPerEpoch(
         uint48 epoch
@@ -318,9 +397,7 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
     }
 
     /**
-     * @notice Checks if rewards for a specific era have been transferred to middlewares
-     * @param eraIndex The era index to check
-     * @return eraTransferred True if rewards have been transferred, false otherwise
+     * @inheritdoc ITanssiMetaMiddleware
      */
     function getEraTransferred(
         uint48 eraIndex
@@ -330,8 +407,7 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
     }
 
     /**
-     * @notice Retrieves the most recent era index for which rewards were received from the gateway
-     * @return lastReceivedEraIndex The last received era index
+     * @inheritdoc ITanssiMetaMiddleware
      */
     function getLastReceivedEraIndex() external view returns (uint48 lastReceivedEraIndex) {
         TanssiMetaMiddlewareRewardsStorage storage $r = _getTanssiMetaMiddlewareRewardsStorage();
@@ -339,8 +415,7 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
     }
 
     /**
-     * @notice Retrieves the most recent era index for which all rewards have been distributed
-     * @return lastDistributedEraIndex The last distributed era index
+     * @inheritdoc ITanssiMetaMiddleware
      */
     function getLastDistributedEraIndex() external view returns (uint48 lastDistributedEraIndex) {
         TanssiMetaMiddlewareRewardsStorage storage $r = _getTanssiMetaMiddlewareRewardsStorage();
@@ -348,10 +423,7 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
     }
 
     /**
-     * @notice Retrieves the distribution status for a specific era and middleware
-     * @param eraIndex The era index to query
-     * @param middleware The middleware address to query
-     * @return status The current distribution status (PENDING, IN_PROGRESS, or DISTRIBUTED)
+     * @inheritdoc ITanssiMetaMiddleware
      */
     function getDistributionStatusPerEraIndexPerMiddleware(
         uint48 eraIndex,
@@ -362,11 +434,7 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
     }
 
     /**
-     * @notice Retrieves the total points stored for a specific era and middleware
-     * @param eraIndex The era index to query
-     * @param middleware The middleware address to query
-     * @return pointsStored The total points stored for the era and middleware combination
-     * @dev The points are only stored via storeRewards method, which is not used on the trustingly distributed rewards.
+     * @inheritdoc ITanssiMetaMiddleware
      */
     function getPointsStoredPerEraIndexPerMiddleware(
         uint48 eraIndex,
@@ -377,41 +445,7 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
     }
 
     /**
-     * @notice Stores operator rewards by verifying Merkle proofs for a specific era
-     * @param eraIndex The era index for which to store rewards
-     * @param operatorRewardsAndProofs Array of operator rewards with their Merkle proofs
-     * @dev This function verifies Merkle proofs and stores the rewards. If all points are stored,
-     *      it automatically transfers rewards to middlewares
-     */
-    function storeRewards(uint48 eraIndex, OperatorRewardWithProof[] memory operatorRewardsAndProofs) external {
-        TanssiMetaMiddlewareRewardsStorage storage $r = _getTanssiMetaMiddlewareRewardsStorage();
-        EraRoot memory eraRoot = _loadAndVerifyEraRoot($r, eraIndex);
-
-        // If the era has already been transferred, distribution is in progress and we cannot know if it was already partially distributed so we need to revert.
-        require(!$r.eraTransferred[eraIndex], TanssiMetaMiddleware__UnexpectedDistributionStatus());
-
-        uint256 totalOperators = operatorRewardsAndProofs.length;
-        uint256 totalPointsProcessed;
-        for (uint256 i; i < totalOperators;) {
-            OperatorRewardWithProof memory operatorRewardAndProof = operatorRewardsAndProofs[i];
-            _verifyProofAndStoreReward($r, eraIndex, eraRoot, operatorRewardAndProof);
-            totalPointsProcessed += operatorRewardAndProof.totalPoints;
-            unchecked {
-                ++i;
-            }
-        }
-        _transferRewardsIfAllStored($r, eraIndex, eraRoot);
-    }
-
-    /**
-     * @notice Prepares rewards distribution data for a middleware based on operator rewards with proofs
-     * @param eraIndex The era index for which to prepare distribution data
-     * @param middleware The middleware address to prepare distribution data for
-     * @param operatorRewardsAndProofs Array of operator rewards with their Merkle proofs
-     * @return rewardsDistributionData Encoded data containing the rewards distribution information
-     * @return totalAmount The total amount of rewards to be distributed
-     * @dev This function verifies proofs and prepares distribution data without storing rewards
-     * @dev The actual rewards distribution data is prepared by each middleware itself, in an arbitrary encoding that it is then passed to the distributeRewardsToMiddlewareTrustingly call.
+     * @inheritdoc ITanssiMetaMiddleware
      */
     function prepareRewardsDistributionData(
         uint48 eraIndex,
@@ -443,83 +477,7 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
         );
     }
 
-    /**
-     * @notice Trustlessly distributes rewards to a middleware for a specific era.
-     * @param eraIndex    The era index for which to distribute rewards.
-     * @param middleware  The middleware address to distribute rewards to.
-     * @dev Only callable for a known middleware.
-     * @dev Requires that distribution status is PENDING.
-     * @dev Reverts if distribution cannot be completed in a single call.
-     * @dev This operation is significantly more expensive than trustingly distributed rewards,
-     *      since it requires all rewards for each operator to be stored beforehand and prepares
-     *      distribution data within this call.
-     */
-    function distributeRewardsToMiddlewareTrustlessly(
-        uint48 eraIndex,
-        address middleware
-    ) external onlyKnownMiddleware(middleware) {
-        TanssiMetaMiddlewareRewardsStorage storage $r = _getTanssiMetaMiddlewareRewardsStorage();
-        EraRoot memory eraRoot = _loadAndVerifyEraRoot($r, eraIndex);
-
-        DistributionStatus currentStatus = $r.distributionStatusPerEraIndexPerMiddleware[eraIndex][middleware];
-
-        // Cannot distribute if distrubution is in progress (by automation in batches) or already distributed
-        require(currentStatus == DistributionStatus.PENDING, TanssiMetaMiddleware__UnexpectedDistributionStatus());
-
-        bytes memory rewardsDistributionData =
-            ITanssiCommonMiddleware(middleware).prepareRewardsDistributionData(eraIndex, eraRoot.tokenAddress);
-
-        bool distributionComplete =
-            _distributeRewardsToMiddleware(eraIndex, middleware, eraRoot, currentStatus, rewardsDistributionData);
-
-        if (!distributionComplete) {
-            revert TanssiMetaMiddleware__CouldNotDistributeRewardsInASingleCall();
-        }
-    }
-
-    /**
-     * @notice Trustingly distributes rewards to a middleware, used by automation systems
-     * @param eraIndex The era index for which to distribute rewards
-     * @param middleware The middleware address to distribute rewards to
-     * @param totalAmount The total amount of rewards to distribute
-     * @param rewardsDistributionData Encoded data containing the rewards distribution information
-     * @dev Only callable by addresses with AUTOMATION_ROLE on known middlewares
-     * @dev This function trusts the provided data and does not verify Merkle proofs
-     * @dev Transfers rewards to middleware if not already transferred
-     */
-    function distributeRewardsToMiddlewareTrustingly(
-        uint48 eraIndex,
-        address middleware,
-        uint256 totalAmount,
-        bytes memory rewardsDistributionData
-    ) external onlyKnownMiddleware(middleware) onlyRole(AUTOMATION_ROLE) {
-        TanssiMetaMiddlewareRewardsStorage storage $r = _getTanssiMetaMiddlewareRewardsStorage();
-        EraRoot memory eraRoot = _loadAndVerifyEraRoot($r, eraIndex);
-
-        DistributionStatus currentStatus = $r.distributionStatusPerEraIndexPerMiddleware[eraIndex][middleware];
-
-        require(currentStatus != DistributionStatus.DISTRIBUTED, TanssiMetaMiddleware__UnexpectedDistributionStatus());
-
-        if (!$r.eraTransferred[eraIndex]) {
-            IERC20(eraRoot.tokenAddress).approve(middleware, totalAmount);
-            ITanssiCommonMiddleware(middleware).transferRewards(eraIndex, eraRoot.tokenAddress, totalAmount);
-            $r.eraTransferred[eraIndex] = true;
-        }
-
-        _distributeRewardsToMiddleware(eraIndex, middleware, eraRoot, currentStatus, rewardsDistributionData);
-    }
-
-    /**
-     * @inheritdoc ITanssiMetaMiddleware
-     */
-    function slash(uint48 epoch, bytes32 operatorKey, uint256 percentage) external onlyRole(GATEWAY_ROLE) {
-        TanssiMetaMiddlewareStorage storage $ = _getTanssiMetaMiddlewareStorage();
-        address operator = $.keyToOperator[operatorKey];
-        address middleware = $.operatorToMiddleware[operator];
-        require(middleware != address(0), TanssiMetaMiddleware__UnexpectedMiddleware());
-
-        ITanssiCommonMiddleware(middleware).slash(epoch, operator, percentage);
-    }
+    // ---------------------- Internal ----------------------
 
     /**
      * @notice Internal function to distribute rewards to a middleware
@@ -553,6 +511,8 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
         _updateLastDistributedEraIndex($r, eraIndex);
         emit RewardsDistributed(middleware, eraIndex, distributionComplete);
     }
+
+    // ---------------------- Internal View ----------------------
 
     /**
      * @notice Loads and verifies that an era root exists for the given era index
@@ -721,6 +681,8 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
 
         emit OperatorKeySet(operator, newKey);
     }
+
+    // ---------------------- Internal Pure ----------------------
 
     /**
      * @notice Retrieves the storage slot for TanssiMetaMiddlewareStorage
