@@ -94,6 +94,7 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
     bytes32 private constant TanssiMetaMiddlewareRewardsStorageLocation =
         0x54a3f29c5fa45fe2d6fd3fc47f629c8d05757edae5a867d838093af1389d7500;
 
+    // TODO: We can use roles instead.
     /**
      * @notice Modifier that ensures the middleware address is registered
      * @param middleware The middleware address to check
