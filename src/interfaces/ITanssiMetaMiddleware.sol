@@ -95,6 +95,8 @@ interface ITanssiMetaMiddleware {
     error TanssiMetaMiddleware__InvalidProof();
     /// @notice Thrown when attempting to use an operator key that has already been used
     error TanssiMetaMiddleware__KeyAlreadyUsed();
+    /// @notice Thrown when attempting to store rewards for an operator that already has rewards stored
+    error TanssiMetaMiddleware__OperatorRewardAlreadyStored(uint48 eraIndex, address operator);
     /// @notice Thrown when attempting to register a middleware that is already registered
     error TanssiMetaMiddleware__MiddlewareAlreadyRegistered();
     /// @notice Thrown when the distribution status is not in the expected state for the operation

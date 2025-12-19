@@ -556,6 +556,11 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
         OperatorReward memory operatorReward = _verifyProofAndGetOperatorRewards(eraRoot, operatorRewardAndProof);
         address middleware = $.operatorToMiddleware[operatorReward.operator];
 
+        require(
+            $r.operatorRewardsPerIndexPerMiddlewarePerOperator[eraIndex][middleware][operatorReward.operator] == 0,
+            TanssiMetaMiddleware__OperatorRewardAlreadyStored(eraIndex, operatorReward.operator)
+        );
+
         $r.operatorRewardsPerIndexPerMiddlewarePerOperator[eraIndex][middleware][operatorReward.operator] =
             operatorReward.rewardAmount;
         $r.pointsStoredPerEraIndexPerMiddleware[eraIndex][middleware] += totalPoints;
