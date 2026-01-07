@@ -478,6 +478,44 @@ contract TanssiMetaMiddlewareTest is Utils {
         assertEq(totalAmount, totalDistributedAmount);
     }
 
+    function testCanNotStoreRewardsIfAlreadyStored() public {
+        uint48 eraIndex = 1;
+        (ITanssiMetaMiddleware.OperatorRewardWithProof[] memory operatorRewardsAndProofs,,,) =
+            _prepare50OperatorsWithRewardsAndProofs(eraIndex);
+
+        // Take only first 5 operators so it doesn't finish storing;
+        assembly {
+            mstore(operatorRewardsAndProofs, 5)
+        }
+
+        tanssiMetaMiddleware.storeRewards(eraIndex, operatorRewardsAndProofs);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ITanssiMetaMiddleware.TanssiMetaMiddleware__OperatorRewardAlreadyStored.selector, eraIndex, operator1
+            )
+        );
+        tanssiMetaMiddleware.storeRewards(eraIndex, operatorRewardsAndProofs);
+    }
+
+    function testCanNotStoreRewardsIfAlreadyStoredInTheSameBatch() public {
+        uint48 eraIndex = 1;
+        (ITanssiMetaMiddleware.OperatorRewardWithProof[] memory operatorRewardsAndProofs,,,) =
+            _prepare50OperatorsWithRewardsAndProofs(eraIndex);
+
+        // Take only first 5 operators so it doesn't finish storing;
+        assembly {
+            mstore(operatorRewardsAndProofs, 5)
+        }
+        operatorRewardsAndProofs[4] = operatorRewardsAndProofs[0];
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ITanssiMetaMiddleware.TanssiMetaMiddleware__OperatorRewardAlreadyStored.selector, eraIndex, operator1
+            )
+        );
+        tanssiMetaMiddleware.storeRewards(eraIndex, operatorRewardsAndProofs);
+    }
+
     function testStoreAndTransferRewards() public {
         vm.skip(skipCostTests);
 
