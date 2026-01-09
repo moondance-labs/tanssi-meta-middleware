@@ -104,7 +104,7 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
         address middleware
     ) {
         TanssiMetaMiddlewareStorage storage $ = _getTanssiMetaMiddlewareStorage();
-        require($.knownMiddlewares[middleware], TanssiMetaMiddleware__UnknownMiddleware());
+        if (!$.knownMiddlewares[middleware]) revert TanssiMetaMiddleware__UnknownMiddleware();
         _;
     }
 
@@ -139,7 +139,7 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
         address middleware
     ) external onlyRole(DEFAULT_ADMIN_ROLE) {
         TanssiMetaMiddlewareStorage storage $ = _getTanssiMetaMiddlewareStorage();
-        require(!$.knownMiddlewares[middleware], TanssiMetaMiddleware__MiddlewareAlreadyRegistered());
+        if ($.knownMiddlewares[middleware]) revert TanssiMetaMiddleware__MiddlewareAlreadyRegistered();
 
         $.knownMiddlewares[middleware] = true;
         $.middlewares.push(middleware);
@@ -162,7 +162,7 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
      */
     function updateOperatorKey(address operator, bytes32 newKey) external onlyKnownMiddleware(msg.sender) {
         TanssiMetaMiddlewareStorage storage $ = _getTanssiMetaMiddlewareStorage();
-        require($.operatorToMiddleware[operator] == msg.sender, TanssiMetaMiddleware__UnexpectedMiddleware());
+        if ($.operatorToMiddleware[operator] != msg.sender) revert TanssiMetaMiddleware__UnexpectedMiddleware();
 
         _setOperatorKey(operator, newKey);
     }
@@ -172,7 +172,7 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
      */
     function registerCollateral(address collateral, address oracle) external onlyRole(DEFAULT_ADMIN_ROLE) {
         TanssiMetaMiddlewareStorage storage $ = _getTanssiMetaMiddlewareStorage();
-        require($.collateralToOracle[collateral] == address(0), TanssiMetaMiddleware__CollateralAlreadyRegistered());
+        if ($.collateralToOracle[collateral] != address(0)) revert TanssiMetaMiddleware__CollateralAlreadyRegistered();
 
         $.collateralToOracle[collateral] = oracle;
     }
@@ -190,15 +190,14 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
     ) external onlyRole(GATEWAY_ROLE) {
         TanssiMetaMiddlewareRewardsStorage storage $r = _getTanssiMetaMiddlewareRewardsStorage();
 
-        require($r.eraRoot[eraIndex].epoch == 0, TanssiMetaMiddleware__EraRootAlreadySet());
+        if ($r.eraRoot[eraIndex].epoch != 0) revert TanssiMetaMiddleware__EraRootAlreadySet();
 
-        require($r.lastReceivedEraIndex + 1 == eraIndex, TanssiMetaMiddleware__UnexpectedEraIndex());
+        if ($r.lastReceivedEraIndex + 1 != eraIndex) revert TanssiMetaMiddleware__UnexpectedEraIndex();
 
-        require(
+        if (
             totalAmount + $r.totalRewardsReceived
-                == IERC20(tokenAddress).balanceOf(address(this)) + $r.totalRewardsTransferred,
-            TanssiMetaMiddleware__InsufficientRewardsReceived()
-        );
+                != IERC20(tokenAddress).balanceOf(address(this)) + $r.totalRewardsTransferred
+        ) revert TanssiMetaMiddleware__InsufficientRewardsReceived();
 
         EraRoot memory eraRoot = EraRoot({
             epoch: epoch,
@@ -222,7 +221,7 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
         TanssiMetaMiddlewareStorage storage $ = _getTanssiMetaMiddlewareStorage();
         address operator = $.keyToOperator[operatorKey];
         address middleware = $.operatorToMiddleware[operator];
-        require(middleware != address(0), TanssiMetaMiddleware__UnexpectedMiddleware());
+        if (middleware == address(0)) revert TanssiMetaMiddleware__UnexpectedMiddleware();
 
         ITanssiCommonMiddleware(middleware).slash(epoch, operator, percentage);
     }
@@ -235,7 +234,7 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
         EraRoot memory eraRoot = _loadAndVerifyEraRoot($r, eraIndex);
 
         // If the era has already been transferred, distribution is in progress and we cannot know if it was already partially distributed so we need to revert.
-        require(!$r.eraTransferred[eraIndex], TanssiMetaMiddleware__UnexpectedDistributionStatus());
+        if ($r.eraTransferred[eraIndex]) revert TanssiMetaMiddleware__UnexpectedDistributionStatus();
 
         uint256 totalOperators = operatorRewardsAndProofs.length;
         uint256 totalPointsProcessed;
@@ -263,7 +262,7 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
         DistributionStatus currentStatus = $r.distributionStatusPerEraIndexPerMiddleware[eraIndex][middleware];
 
         // Cannot distribute if distrubution is in progress (by automation in batches) or already distributed
-        require(currentStatus == DistributionStatus.PENDING, TanssiMetaMiddleware__UnexpectedDistributionStatus());
+        if (currentStatus != DistributionStatus.PENDING) revert TanssiMetaMiddleware__UnexpectedDistributionStatus();
 
         bytes memory rewardsDistributionData =
             ITanssiCommonMiddleware(middleware).prepareRewardsDistributionData(eraIndex, eraRoot.tokenAddress);
@@ -290,7 +289,9 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
 
         DistributionStatus currentStatus = $r.distributionStatusPerEraIndexPerMiddleware[eraIndex][middleware];
 
-        require(currentStatus != DistributionStatus.DISTRIBUTED, TanssiMetaMiddleware__UnexpectedDistributionStatus());
+        if (currentStatus == DistributionStatus.DISTRIBUTED) {
+            revert TanssiMetaMiddleware__UnexpectedDistributionStatus();
+        }
 
         if (!$r.eraTransferred[eraIndex]) {
             IERC20(eraRoot.tokenAddress).approve(middleware, totalAmount);
@@ -463,10 +464,9 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
         for (uint256 i; i < totalOperators;) {
             OperatorRewardWithProof memory operatorRewardAndProof = operatorRewardsAndProofs[i];
             operatorRewards[i] = _verifyProofAndGetOperatorRewards(eraRoot, operatorRewardAndProof);
-            require(
-                $.operatorToMiddleware[operatorRewards[i].operator] == middleware,
-                TanssiMetaMiddleware__UnexpectedMiddleware()
-            );
+            if ($.operatorToMiddleware[operatorRewards[i].operator] != middleware) {
+                revert TanssiMetaMiddleware__UnexpectedMiddleware();
+            }
             totalAmount += operatorRewards[i].rewardAmount;
             unchecked {
                 ++i;
@@ -528,7 +528,7 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
     ) internal view returns (EraRoot memory eraRoot) {
         eraRoot = $r.eraRoot[eraIndex];
 
-        require(eraRoot.epoch != 0, TanssiMetaMiddleware__EraRootNotSet());
+        if (eraRoot.epoch == 0) revert TanssiMetaMiddleware__EraRootNotSet();
     }
 
     /**
@@ -556,10 +556,9 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
         OperatorReward memory operatorReward = _verifyProofAndGetOperatorRewards(eraRoot, operatorRewardAndProof);
         address middleware = $.operatorToMiddleware[operatorReward.operator];
 
-        require(
-            $r.operatorRewardsPerIndexPerMiddlewarePerOperator[eraIndex][middleware][operatorReward.operator] == 0,
-            TanssiMetaMiddleware__OperatorRewardAlreadyStored(eraIndex, operatorReward.operator)
-        );
+        if ($r.operatorRewardsPerIndexPerMiddlewarePerOperator[eraIndex][middleware][operatorReward.operator] != 0) {
+            revert TanssiMetaMiddleware__OperatorRewardAlreadyStored(eraIndex, operatorReward.operator);
+        }
 
         $r.operatorRewardsPerIndexPerMiddlewarePerOperator[eraIndex][middleware][operatorReward.operator] =
             operatorReward.rewardAmount;
@@ -583,14 +582,13 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
         bytes32 operatorKey = operatorRewardAndProof.operatorKey;
         uint32 totalPoints = operatorRewardAndProof.totalPoints;
 
-        require(
-            MerkleProof.verify(
+        if (
+            !MerkleProof.verify(
                 operatorRewardAndProof.proof,
                 eraRoot.root,
                 keccak256(abi.encodePacked(operatorKey, _encodeU32(totalPoints)))
-            ),
-            TanssiMetaMiddleware__InvalidProof()
-        );
+            )
+        ) revert TanssiMetaMiddleware__InvalidProof();
 
         operatorReward = OperatorReward({
             operator: $.keyToOperator[operatorKey],
@@ -680,7 +678,7 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
      */
     function _setOperatorKey(address operator, bytes32 newKey) internal {
         TanssiMetaMiddlewareStorage storage $ = _getTanssiMetaMiddlewareStorage();
-        require(!$.usedKeys[newKey], TanssiMetaMiddleware__KeyAlreadyUsed());
+        if ($.usedKeys[newKey]) revert TanssiMetaMiddleware__KeyAlreadyUsed();
 
         $.usedKeys[newKey] = true;
         $.keyToOperator[newKey] = operator;
