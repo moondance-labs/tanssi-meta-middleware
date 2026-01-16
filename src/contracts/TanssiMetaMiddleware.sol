@@ -590,8 +590,11 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
             )
         ) revert TanssiMetaMiddleware__InvalidProof();
 
+        address operator = $.keyToOperator[operatorKey];
+        if (operator == address(0)) revert TanssiMetaMiddleware__OperatorNotFound();
+
         operatorReward = OperatorReward({
-            operator: $.keyToOperator[operatorKey],
+            operator: operator,
             rewardAmount: eraRoot.totalAmount.mulDiv(totalPoints, eraRoot.totalPoints)
         });
     }
