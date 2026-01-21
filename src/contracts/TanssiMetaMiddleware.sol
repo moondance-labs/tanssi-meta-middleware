@@ -54,7 +54,7 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
         mapping(bytes32 key => bool used) usedKeys;
         mapping(bytes32 key => address operator) keyToOperator;
         mapping(address operator => address middleware) operatorToMiddleware;
-        mapping(address collateral => address oracle) collateralToOracle;
+        mapping(address collateral => address oracle) collateralToOracle; // TODO: Add a getter for this.
         mapping(address middleware => bool known) knownMiddlewares;
         address[] middlewares;
     }
@@ -192,6 +192,7 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
 
         if ($r.eraRoot[eraIndex].epoch != 0) revert TanssiMetaMiddleware__EraRootAlreadySet();
 
+        // TODO: We need a way to initialize the last received era index
         if ($r.lastReceivedEraIndex + 1 != eraIndex) revert TanssiMetaMiddleware__UnexpectedEraIndex();
 
         if (
@@ -293,6 +294,7 @@ contract TanssiMetaMiddleware is AccessControlUpgradeable, UUPSUpgradeable, ITan
             revert TanssiMetaMiddleware__UnexpectedDistributionStatus();
         }
 
+        // TODO: This would transfer only to this middleware, not to all middlewares. It's a bug. Maybe we should call _transferRewardsIfAllStored and revert if it's not all transferred.
         if (!$r.eraTransferred[eraIndex]) {
             IERC20(eraRoot.tokenAddress).approve(middleware, totalAmount);
             ITanssiCommonMiddleware(middleware).transferRewards(eraIndex, eraRoot.tokenAddress, totalAmount);
